@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_env: str = "production"
     cors_origins: str = "https://rudrxai.cloud"
     api_base_url: str = "https://api.rudrxai.cloud"
+    master_user_id: str = ""  # Your Supabase auth user ID (optional)
 
     class Config:
         env_file = ".env"

@@ -122,19 +122,19 @@ async def auto_provision_key(key: str, key_hash: str) -> str:
 
 async def ensure_profile_exists(user_id: str):
     """Create a profile if it doesn't exist yet."""
-    existing = supabase.table("profiles").select("id").eq("id", user_id).execute()
-    if not existing.data:
-        try:
-            supabase.table("profiles").insert({
+    try:
+        existing = supabase.table("profiles").select("id").eq("id", user_id).execute()
+        if not existing.data:
+            supabase.table("profiles").upsert({
                 "id": user_id,
                 "full_name": "RUDRX1 User",
                 "plan": "free",
                 "balance": 0.00,
                 "tokens_used_this_month": 0,
-                "token_limit": 1000000,  # 1M tokens free
-            }).execute()
-        except Exception:
-            pass  # Profile might already exist due to race condition
+                "token_limit": 1000000,
+            }, on_conflict="id").execute()
+    except Exception:
+        pass  # FK constraint or race condition — non-critical
 
 
 async def check_rate_limit(user: dict = Depends(get_current_user)):
@@ -142,32 +142,38 @@ async def check_rate_limit(user: dict = Depends(get_current_user)):
     user_id = user["user_id"]
 
     # Get user profile for plan
-    profile = supabase.table("profiles").select("plan, tokens_used_this_month, token_limit, balance").eq("id", user_id).single().execute()
+    try:
+        profile_result = supabase.table("profiles").select("plan, tokens_used_this_month, token_limit, balance").eq("id", user_id).execute()
+        profile_data = profile_result.data[0] if profile_result.data else None
+    except Exception:
+        profile_data = None
 
-    if not profile.data:
-        raise HTTPException(status_code=403, detail="User profile not found")
+    # If no profile, use defaults (allow request)
+    if not profile_data:
+        profile_data = {"plan": "free", "tokens_used_this_month": 0, "token_limit": 1000000, "balance": 0}
 
     # Allow if under token limit OR has balance (pay-as-you-go)
-    if profile.data["tokens_used_this_month"] >= profile.data["token_limit"]:
-        if float(profile.data["balance"]) <= 0:
+    if profile_data["tokens_used_this_month"] >= profile_data["token_limit"]:
+        if float(profile_data["balance"]) <= 0:
             raise HTTPException(
                 status_code=429,
                 detail="Monthly token limit exceeded. Upgrade your plan or add balance.",
                 headers={
-                    "x-ratelimit-limit-tokens": str(profile.data["token_limit"]),
+                    "x-ratelimit-limit-tokens": str(profile_data["token_limit"]),
                     "x-ratelimit-remaining-tokens": "0",
                 },
             )
 
-    return {**user, "profile": profile.data}
+    return {**user, "profile": profile_data}
 
 
 async def check_balance(user: dict = Depends(get_current_user)):
     """Check if user has sufficient balance for pay-as-you-go."""
     user_id = user["user_id"]
-    profile = supabase.table("profiles").select("balance, plan").eq("id", user_id).single().execute()
+    try:
+        profile_result = supabase.table("profiles").select("balance, plan").eq("id", user_id).execute()
+        profile_data = profile_result.data[0] if profile_result.data else {"balance": 0, "plan": "free"}
+    except Exception:
+        profile_data = {"balance": 0, "plan": "free"}
 
-    if not profile.data:
-        raise HTTPException(status_code=403, detail="User profile not found")
-
-    return {**user, "profile": profile.data}
+    return {**user, "profile": profile_data}

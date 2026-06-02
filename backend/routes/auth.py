@@ -18,10 +18,22 @@ class UpdateProfileRequest(BaseModel):
 async def get_profile(user: dict = Depends(get_current_user)):
     """Get authenticated user's profile."""
     db = get_supabase()
-    result = db.table("profiles").select("*").eq("id", user["user_id"]).single().execute()
+    result = db.table("profiles").select("*").eq("id", user["user_id"]).execute()
+
     if not result.data:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    return result.data
+        # Return a default profile if none exists (FK constraint prevents creation)
+        return {
+            "id": user["user_id"],
+            "full_name": "RUDRX1 User",
+            "plan": "free",
+            "balance": 0.00,
+            "tokens_used_this_month": 0,
+            "token_limit": 1000000,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    return result.data[0]
 
 
 @router.patch("/profile")

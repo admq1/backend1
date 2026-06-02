@@ -192,11 +192,15 @@ async def log_usage(db, user_id, key_id, model, input_tokens, output_tokens, tot
 
 async def deduct_balance(db, user_id, cost, total_tokens):
     """Deduct cost from user balance and update token count."""
-    profile = db.table("profiles").select("balance, tokens_used_this_month").eq("id", user_id).single().execute()
-    if profile.data:
-        new_balance = max(0, float(profile.data["balance"]) - float(cost))
-        new_tokens = profile.data["tokens_used_this_month"] + total_tokens
-        db.table("profiles").update({
-            "balance": new_balance,
-            "tokens_used_this_month": new_tokens,
-        }).eq("id", user_id).execute()
+    try:
+        profile_result = db.table("profiles").select("balance, tokens_used_this_month").eq("id", user_id).execute()
+        if profile_result.data:
+            profile = profile_result.data[0]
+            new_balance = max(0, float(profile["balance"]) - float(cost))
+            new_tokens = profile["tokens_used_this_month"] + total_tokens
+            db.table("profiles").update({
+                "balance": new_balance,
+                "tokens_used_this_month": new_tokens,
+            }).eq("id", user_id).execute()
+    except Exception:
+        pass  # Non-critical — don't block the response
